@@ -53,7 +53,7 @@ def run_csv_processing(welcome_window):
 
     output_csv_path = save_file_as("Save the filtered CSV file as")
     if not output_csv_path:
-        print("No output file location selected. Exiting program.")
+        print("Output file location is not selected. Exiting program.")
         return
 
     try:

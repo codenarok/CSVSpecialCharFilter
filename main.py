@@ -40,7 +40,7 @@ class CSVFilterApp:
             "This tool identifies rows in a CSV file where 'Title' or 'Developer' "
             "columns contain special (non-ASCII) characters.\n\n"
             "Features:\n"
-            "• GUI-based file selection\n"
+            "• GUI-based file selection (Buttons are improved)\n"
             "• Detailed processing statistics\n"
             "• Robust error handling\n\n"
             "Click 'Start Processing' to begin."

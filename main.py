@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import re
 from typing import Union
+import os # Added for os.path.basename
 
 class CSVFilterApp:
     def __init__(self, root: tk.Tk):
@@ -42,8 +43,9 @@ class CSVFilterApp:
             "Features:\n"
             "• GUI-based file selection (Buttons are improved)\n"
             "• Detailed processing statistics\n"
-            "• Robust error handling\n\n"
-            "Click 'Start Processing' to begin."
+            "• Robust error handling\n"
+            "• Calculate and display CSV dimensions (rows x columns)\n\n"
+            "Click 'Start Processing' to begin or 'Calculate Dimensions' for file insights."
         )
         description_label = tk.Label(
             self.root,
@@ -86,6 +88,24 @@ class CSVFilterApp:
         )
         start_button.pack(side=tk.LEFT, padx=20, ipady=5) # Increased spacing & internal y-padding
 
+        # Calculate Dimensions Button
+        calc_dims_button = tk.Button(
+            button_frame,
+            text="Calculate Dimensions",
+            font=button_font,
+            bg="#2196F3",  # Blue
+            fg="white",
+            command=self.calculate_and_display_dimensions,
+            relief=button_relief,
+            bd=button_border_width,
+            padx=button_padx,
+            pady=button_pady,
+            cursor="hand2",
+            activebackground="#1E88E5",  # Darker blue
+            activeforeground="white"
+        )
+        calc_dims_button.pack(side=tk.LEFT, padx=20, ipady=5)
+
         # Exit button
         exit_button = tk.Button(
             button_frame,
@@ -102,7 +122,7 @@ class CSVFilterApp:
             activebackground="#e53935", # Darker red on click
             activeforeground="white"
         )
-        exit_button.pack(side=tk.LEFT, padx=20, ipady=5) # Increased spacing & internal y-padding
+        exit_button.pack(side=tk.LEFT, padx=10, ipady=5) # Adjusted padx & internal y-padding
 
     @staticmethod
     def contains_special_characters(text: Union[str, float, None]) -> bool:
@@ -173,6 +193,45 @@ class CSVFilterApp:
         )
         dialog_root.destroy()
         return file_path
+
+    def calculate_and_display_dimensions(self) -> None:
+        """
+        Prompts the user to select a CSV file, then calculates and displays its dimensions (rows x columns).
+        """
+        input_csv_path = self.select_file("Select a CSV file to calculate dimensions")
+        if not input_csv_path:
+            messagebox.showinfo("Cancelled", "No file selected. Operation cancelled.", parent=self.root)
+            return
+
+        try:
+            df = pd.read_csv(input_csv_path)
+            
+            rows, cols = df.shape
+            
+            if df.empty:
+                # This handles files with headers but no data rows (shape will be (0, num_cols))
+                # or files that are empty but pandas could still determine columns (less common for read_csv)
+                messagebox.showinfo(
+                    "CSV Dimensions",
+                    f"The selected CSV file has 0 data rows.\n\nRows: {rows}\nColumns: {cols}",
+                    parent=self.root
+                )
+            else:
+                messagebox.showinfo(
+                    "CSV Dimensions",
+                    f"The selected CSV file has:\n\nRows: {rows}\nColumns: {cols}",
+                    parent=self.root
+                )
+                
+        except FileNotFoundError:
+            messagebox.showerror("Error", f"File not found:\n{input_csv_path}", parent=self.root)
+        except pd.errors.EmptyDataError:
+            # This error is raised if the file is completely empty (0 bytes) or contains only whitespace
+            messagebox.showerror("Error", "The selected file is completely empty or not a valid CSV.", parent=self.root)
+        except pd.errors.ParserError:
+            messagebox.showerror("Error", "Could not parse the CSV file. Please ensure it's a valid CSV format.", parent=self.root)
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred while reading or processing the CSV file:\n{str(e)}", parent=self.root)
 
     def run_csv_processing(self) -> None:
         """

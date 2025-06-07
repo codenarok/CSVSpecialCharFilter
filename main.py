@@ -14,8 +14,8 @@ class CSVFilterApp:
 
     def _configure_window(self):
         # Configure window size and position
-        window_width = 450
-        window_height = 320 # Increased window height
+        window_width = 900 # Increased window width
+        window_height = 640 # Increased window height
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         center_x = int(screen_width / 2 - window_width / 2)

@@ -4,6 +4,7 @@ Find, report, repair and clean the characters in a CSV file that break imports i
 
 A "special character" is anything outside printable ASCII (space to `~`) plus tab and line breaks: accented letters, typographic quotes and dashes, non-breaking spaces, emoji and control characters.
 
+- **Any CSV file.** Every column is checked by default, whatever it is called; you can narrow it to the columns you name.
 - **No dependencies.** Python 3.9+ standard library only.
 - **Works offline.** Your data never leaves your machine.
 - **Large files are fine.** Rows are read one at a time.
@@ -16,6 +17,13 @@ A "special character" is anything outside printable ASCII (space to `~`) plus ta
 | Filter | Saves only the rows that contain special characters, unchanged, so you can review them. |
 | Repair | Saves every row with mis-decoded text (mojibake) put right: `CafÃ©` becomes `Café`, `itâ€™s` becomes `it’s`. Accents are kept. |
 | Clean | Saves every row with special characters replaced by plain ASCII: `Café` becomes `Cafe`, `“quoted”` becomes `"quoted"`, `Şeker` becomes `Seker`. Mis-decoded text is repaired first, so `CafÃ©` also becomes `Cafe`. |
+
+## Which files work
+
+- **Columns:** any names and any number. Nothing is tied to particular columns such as `Title` or `Developer`.
+- **Separators:** comma, semicolon, tab and pipe are detected, so `.tsv` files and semicolon-separated exports work. `--delimiter` overrides the guess.
+- **Encoding:** UTF-8 by default. For files saved by Excel on Windows, use `--encoding cp1252`.
+- **Header row:** the first row must hold the column names, because columns are chosen by name. In a file with no header, the first data row is taken as the names and is not checked.
 
 ## Install
 

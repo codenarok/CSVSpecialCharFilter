@@ -46,10 +46,15 @@ class CSVFilterApp:
         ttk.Label(outer, text="Columns to check").grid(row=1, column=0, sticky="w")
         ttk.Label(outer, text="Report").grid(row=1, column=1, sticky="w", padx=(12, 0))
 
-        self.column_list = tk.Listbox(outer, selectmode=tk.EXTENDED, exportselection=False, width=28)
+        # The same thin outline on both panes; by default the report has none.
+        outline = dict(
+            relief=tk.FLAT, borderwidth=0, highlightthickness=1,
+            highlightbackground="#b0b0b0", highlightcolor="#b0b0b0",
+        )
+        self.column_list = tk.Listbox(outer, selectmode=tk.EXTENDED, exportselection=False, width=28, **outline)
         self.column_list.grid(row=2, column=0, sticky="nsew")
 
-        self.report = tk.Text(outer, wrap="word", state=tk.DISABLED, height=18)
+        self.report = tk.Text(outer, wrap="word", state=tk.DISABLED, height=18, padx=6, pady=4, **outline)
         self.report.grid(row=2, column=1, sticky="nsew", padx=(12, 0))
 
         ttk.Checkbutton(

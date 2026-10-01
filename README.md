@@ -104,7 +104,9 @@ The repair is deliberately cautious. A cell is changed only if every special cha
 csvfilter-gui
 ```
 
-(or `python3 csvfilter_gui.py` from a clone). Open a CSV, select the columns to check (none selected means all), then **Scan**, **Save matching rows**, **Save repaired copy** or **Save cleaned copy**. Needs Tkinter, which ships with most Python installs.
+(or `python3 csvfilter_gui.py` from a clone). Open a CSV, select the columns to check (none selected means all), then **Scan**, **Save matching rows**, **Save repaired copy** or **Save cleaned copy**.
+
+The window needs Tkinter. The Python that comes with macOS, Windows installers and Anaconda includes it. Homebrew's Python does not, so if `csvfilter-gui` stops with `No module named '_tkinter'`, add it with `brew install python-tk@3.14` (match the number to your Python version). On Debian or Ubuntu it is `sudo apt install python3-tk`. The command-line `csvfilter` never needs it.
 
 ## Safety
 

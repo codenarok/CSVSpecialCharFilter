@@ -1,4 +1,4 @@
-"""Desktop window for csvfilter. Run: python main.py"""
+"""Desktop window for csvfilter. Run: python csvfilter_gui.py"""
 from __future__ import annotations
 
 import os
@@ -63,6 +63,7 @@ class CSVFilterApp:
         self.action_buttons = [
             ttk.Button(actions, text="Scan", command=self.scan),
             ttk.Button(actions, text="Save matching rows...", command=lambda: self.save("filter")),
+            ttk.Button(actions, text="Save repaired copy...", command=lambda: self.save("repair")),
             ttk.Button(actions, text="Save cleaned copy...", command=lambda: self.save("clean")),
         ]
         for button in self.action_buttons:
@@ -132,7 +133,7 @@ class CSVFilterApp:
         if not self.input_path:
             return
         stem, _ = os.path.splitext(os.path.basename(self.input_path))
-        suffix = "cleaned" if mode == "clean" else "special_chars"
+        suffix = {"clean": "cleaned", "repair": "repaired", "filter": "special_chars"}[mode]
         output_path = filedialog.asksaveasfilename(
             parent=self.root,
             title="Save as",

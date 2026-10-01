@@ -26,3 +26,8 @@ __pycache__/
 *.tsv
 *.xlsx
 *.part
+
+# Packaging output
+build/
+dist/
+*.egg-info/

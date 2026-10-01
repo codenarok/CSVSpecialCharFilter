@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "csv-special-char-filter"
+dynamic = ["version"]
+description = "Find, report, repair and clean non-ASCII characters in CSV files."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "codenarok" }]
+keywords = ["csv", "ascii", "unicode", "mojibake", "data-cleaning"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/codenarok/CSVSpecialCharFilter"
+
+[project.scripts]
+csvfilter = "csvfilter:main"
+csvfilter-gui = "csvfilter_gui:main"
+
+[tool.setuptools]
+py-modules = ["csvfilter", "csvfilter_gui"]
+
+[tool.setuptools.dynamic]
+version = { attr = "csvfilter.__version__" }

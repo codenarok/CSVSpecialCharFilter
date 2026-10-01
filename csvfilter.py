@@ -15,6 +15,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Optional, Sequence, TextIO
 
+__version__ = "1.1.0"
+
 # Anything outside printable ASCII plus tab, newline and carriage return.
 SPECIAL = re.compile(r"[^\x09\x0A\x0D\x20-\x7E]")
 
@@ -31,6 +33,27 @@ _ASCII_SPELLINGS = {
     "€": "EUR", "£": "GBP", "¥": "JPY",
     "©": "(C)", "®": "(R)", "×": "x", "÷": "/",
 }
+
+# Mojibake: UTF-8 bytes that were read as cp1252 or Latin-1, so "Café" shows
+# as "CafÃ©". Map each character such a misreading can produce back to its byte.
+_BYTE_OF = {chr(byte): byte for byte in range(0x80, 0x100)}
+for _byte in range(0x80, 0xA0):
+    try:
+        _BYTE_OF[bytes([_byte]).decode("cp1252")] = _byte
+    except UnicodeDecodeError:
+        pass
+
+
+def _chars_for(first: int, last: int) -> str:
+    return "".join(re.escape(char) for char, byte in _BYTE_OF.items() if first <= byte <= last)
+
+
+_CONTINUATION = _chars_for(0x80, 0xBF)
+_MOJIBAKE = re.compile(
+    f"[{_chars_for(0xC2, 0xDF)}][{_CONTINUATION}]"
+    f"|[{_chars_for(0xE0, 0xEF)}][{_CONTINUATION}]{{2}}"
+    f"|[{_chars_for(0xF0, 0xF4)}][{_CONTINUATION}]{{3}}"
+)
 
 _DELIMITERS = ",;\t|"
 _FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
@@ -70,6 +93,48 @@ def to_ascii(text: str, placeholder: str = "?") -> str:
     return SPECIAL.sub(replace, text)
 
 
+def _plausible(char: str) -> bool:
+    """Whether a repaired character is one real text is likely to contain.
+
+    Genuine text such as "CAFÉ…" or the German „Spaß“ can look like mojibake;
+    the characters it would "repair" to are rare ones, so those are refused.
+    """
+    code = ord(char)
+    if 0x80 <= code < 0xA0 or 0x700 <= code < 0x800:
+        return False
+    if 0x180 <= code < 0x370 and not 0x218 <= code <= 0x21B:
+        return False
+    return unicodedata.category(char) not in ("Cn", "Co", "Cs")
+
+
+def fix_mojibake(text: str) -> str:
+    """Repair UTF-8 text that was read as cp1252 or Latin-1 ("CafÃ©" -> "Café").
+
+    Deliberately cautious: the text is changed only if every special character
+    in it is part of a mis-decoded sequence and every repaired character is
+    plausible. Anything else is returned untouched.
+    """
+    for _ in range(3):  # text can be mis-decoded more than once
+        if not contains_special_characters(text):
+            break
+        if any(ord(char) > 0x7F for char in _MOJIBAKE.sub("", text)):
+            break
+        try:
+            repaired = _MOJIBAKE.sub(
+                lambda match: bytes(_BYTE_OF[char] for char in match.group()).decode("utf-8"), text
+            )
+        except UnicodeDecodeError:
+            break
+        if not all(_plausible(char) for char in repaired if ord(char) > 0x7F):
+            break
+        # Greek, Cyrillic, Hebrew or Arabic text has many such letters; a lone
+        # one is more likely genuine text like "ESPAÑ’" that only looks broken.
+        if sum(0x370 <= ord(char) < 0x700 for char in repaired) == 1:
+            break
+        text = repaired
+    return text
+
+
 def describe_char(char: str) -> str:
     """'U+00E9 LATIN SMALL LETTER E WITH ACUTE (é)' style label for reports."""
     name = unicodedata.name(char, "UNNAMED CHARACTER")
@@ -95,6 +160,8 @@ class Stats:
     total_rows: int = 0
     matching_rows: int = 0
     rows_written: int = 0
+    mojibake_cells: int = 0
+    mojibake_example: Optional[tuple[str, str]] = None
     per_column: Counter = field(default_factory=Counter)
     characters: Counter = field(default_factory=Counter)
     examples: list[tuple[int, str, str]] = field(default_factory=list)
@@ -161,11 +228,12 @@ def process(
     """Scan a CSV and, if output is given, write the result to it.
 
     mode "filter" writes only the rows that have special characters in the
-    chosen columns, unchanged. mode "clean" writes every row, with special
-    characters in the chosen columns replaced by ASCII. columns=None means
-    every column.
+    chosen columns, unchanged. mode "repair" writes every row, with mojibake
+    in the chosen columns repaired and nothing else touched. mode "clean"
+    writes every row, with mojibake repaired and then special characters
+    replaced by ASCII. columns=None means every column.
     """
-    if mode not in ("filter", "clean"):
+    if mode not in ("filter", "repair", "clean"):
         raise ValueError(f"Unknown mode: {mode}")
 
     handle, reader, delimiter = _open_reader(path, encoding, delimiter)
@@ -211,11 +279,18 @@ def process(
                     stats.characters.update(found)
                     if len(stats.examples) < max_examples:
                         stats.examples.append((reader.line_num, header[index], row[index]))
-                    if mode == "clean":
-                        row[index] = to_ascii(row[index], placeholder)
+                    repaired = fix_mojibake(row[index])
+                    if repaired != row[index]:
+                        stats.mojibake_cells += 1
+                        if stats.mojibake_example is None:
+                            stats.mojibake_example = (row[index], repaired)
+                    if mode == "repair":
+                        row[index] = repaired
+                    elif mode == "clean":
+                        row[index] = to_ascii(repaired, placeholder)
                 if row_matches:
                     stats.matching_rows += 1
-                if mode == "clean" or row_matches:
+                if mode != "filter" or row_matches:
                     write(row)
                     stats.rows_written += 1 if writer else 0
         except UnicodeDecodeError as exc:
@@ -248,12 +323,24 @@ def format_report(stats: Stats, top: int = 15) -> str:
         lines.append(f"  {count:>6} x {describe_char(char)}")
     if len(stats.characters) > top:
         lines.append(f"  ... and {len(stats.characters) - top} more")
+    if stats.mojibake_cells:
+        before, after = stats.mojibake_example
+        lines.append("")
+        lines.append(
+            f"Mis-decoded text (mojibake): {stats.mojibake_cells} cells, "
+            f"e.g. {_shorten(before)!r} should be {_shorten(after)!r}"
+        )
     lines.append("")
     lines.append("First examples:")
     for line_num, name, value in stats.examples:
-        shown = value if len(value) <= 60 else value[:57] + "..."
-        lines.append(f"  line {line_num}, {name}: {shown!r} -> {to_ascii(shown)!r}")
+        lines.append(
+            f"  line {line_num}, {name}: {_shorten(value)!r} -> {_shorten(to_ascii(fix_mojibake(value)))!r}"
+        )
     return "\n".join(lines)
+
+
+def _shorten(value: str, limit: int = 60) -> str:
+    return value if len(value) <= limit else value[: limit - 3] + "..."
 
 
 def same_file(first: str, second: str) -> bool:
@@ -301,10 +388,17 @@ def build_parser() -> argparse.ArgumentParser:
         "-c", "--column", action="append", dest="columns", metavar="NAME",
         help="column to check; repeat for several (default: every column)",
     )
-    parser.add_argument(
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--clean", action="store_true",
-        help="write every row with special characters replaced by ASCII, "
-             "instead of only the rows that contain them",
+        help="write every row with special characters replaced by ASCII "
+             "(mis-decoded text is repaired first), instead of only the rows that contain them",
+    )
+    modes.add_argument(
+        "--fix-mojibake", action="store_true",
+        help="write every row with mis-decoded text repaired (CafÃ© becomes Café) "
+             "and everything else, accents included, left as it is",
     )
     parser.add_argument(
         "--check", action="store_true",
@@ -330,7 +424,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     options = dict(
-        mode="clean" if args.clean else "filter",
+        mode="clean" if args.clean else "repair" if args.fix_mojibake else "filter",
         encoding=args.encoding,
         delimiter=args.delimiter,
         placeholder=args.placeholder,

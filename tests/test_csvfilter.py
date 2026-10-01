@@ -69,7 +69,62 @@ class ToAsciiTests(unittest.TestCase):
         self.assertFalse(csvfilter.contains_special_characters(cleaned))
 
 
+class MojibakeTests(unittest.TestCase):
+    @staticmethod
+    def garble(text, encoding="cp1252"):
+        """Mis-decode text the way a wrong import does.
+
+        Windows shows the five bytes cp1252 leaves undefined as control
+        characters, where Python refuses them, so fall back per byte.
+        """
+        def decode(byte):
+            try:
+                return bytes([byte]).decode(encoding)
+            except UnicodeDecodeError:
+                return chr(byte)
+
+        return "".join(decode(byte) for byte in text.encode("utf-8"))
+
+    def test_repairs_common_cases(self):
+        for text in ["Café", "£5", "it’s “ok”", "😀 smile", "Привет мир", "Şeker ışık", "Ștefan", "a\u00a0b"]:
+            self.assertEqual(csvfilter.fix_mojibake(self.garble(text)), text)
+
+    def test_repairs_text_read_as_latin1(self):
+        self.assertEqual(csvfilter.fix_mojibake(self.garble("Café É", "latin-1")), "Café É")
+
+    def test_repairs_text_garbled_twice(self):
+        self.assertEqual(csvfilter.fix_mojibake(self.garble(self.garble("Café"))), "Café")
+
+    def test_leaves_genuine_text_alone(self):
+        for text in [
+            "plain", "Café", "über", "„Spaß“", "«LE CAFÉ»", "CAFÉ…", "“SANTÉ”",
+            "ESPAÑ’", "Ø” island", "Привет", "日本語", "😀",
+        ]:
+            self.assertEqual(csvfilter.fix_mojibake(text), text)
+
+    def test_leaves_mixed_cells_alone(self):
+        self.assertEqual(csvfilter.fix_mojibake("Café and CafÃ©"), "Café and CafÃ©")
+
+
 class ProcessTests(TempDirCase):
+    def test_repair_mode_fixes_mojibake_and_keeps_accents(self):
+        source = self.write("in.csv", "a,b\nCafÃ©,Zoë\nplain,x\n")
+        stats = csvfilter.run(source, self.path("out.csv"), mode="repair")
+        self.assertEqual(self.read("out.csv"), "a,b\nCafé,Zoë\nplain,x\n")
+        self.assertEqual((stats.mojibake_cells, stats.rows_written), (1, 2))
+        self.assertEqual(stats.mojibake_example, ("CafÃ©", "Café"))
+
+    def test_clean_repairs_mojibake_first(self):
+        source = self.write("in.csv", "a\nCafÃ© â€“ itâ€™s\n")
+        csvfilter.run(source, self.path("out.csv"), mode="clean")
+        self.assertEqual(self.read("out.csv"), "a\nCafe - it's\n")
+
+    def test_filter_reports_mojibake_but_writes_rows_unchanged(self):
+        source = self.write("in.csv", "a\nCafÃ©\n")
+        stats = csvfilter.run(source, self.path("out.csv"))
+        self.assertEqual(self.read("out.csv"), "a\nCafÃ©\n")
+        self.assertIn("Mis-decoded text (mojibake): 1 cells, e.g. 'CafÃ©' should be 'Café'", csvfilter.format_report(stats))
+
     def test_filter_writes_only_matching_rows_unchanged(self):
         source = self.write("in.csv", SAMPLE)
         stats = csvfilter.run(source, self.path("out.csv"), ["Title", "Developer"])
@@ -192,6 +247,11 @@ class ReportAndCliTests(TempDirCase):
         self.assertEqual(csvfilter.main([dirty, "--check", "-q"]), 1)
         self.assertEqual(csvfilter.main([clean, "--check", "-q"]), 0)
         self.assertEqual(csvfilter.main([self.path("missing.csv"), "-q"]), 2)
+
+    def test_cli_fix_mojibake(self):
+        source = self.write("in.csv", "a\nCafÃ©\n")
+        self.assertEqual(csvfilter.main([source, "--fix-mojibake", "-o", self.path("out.csv"), "-q"]), 0)
+        self.assertEqual(self.read("out.csv"), "a\nCafé\n")
 
     def test_cli_clean_to_file(self):
         source = self.write("in.csv", SAMPLE)

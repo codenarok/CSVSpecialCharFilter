@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find, report and clean non-ASCII characters in CSV files.
+"""Find, report, repair and clean non-ASCII characters in CSV files.
 
 Standard library only. Files are read row by row, so large files are fine.
 """
@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import functools
 import os
 import re
 import sys
@@ -15,10 +16,15 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Optional, Sequence, TextIO
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 
 # Anything outside printable ASCII plus tab, newline and carriage return.
 SPECIAL = re.compile(r"[^\x09\x0A\x0D\x20-\x7E]")
+
+# Named sets for --allow: letters a target system accepts on top of ASCII.
+ALLOW_SETS = {
+    "turkish": "çğıöşüÇĞİÖŞÜ",
+}
 
 # Characters with an obvious ASCII spelling that Unicode decomposition misses.
 _ASCII_SPELLINGS = {
@@ -63,24 +69,52 @@ class CSVFilterError(Exception):
     """A problem the user can fix: bad path, wrong encoding, unknown column."""
 
 
-def find_special(text: Optional[str]) -> list[str]:
+@functools.lru_cache(maxsize=None)
+def _special(allowed: str = "") -> "re.Pattern[str]":
+    """The pattern for special characters when allowed ones are let through."""
+    if not allowed:
+        return SPECIAL
+    return re.compile(SPECIAL.pattern[:-1] + "".join(re.escape(char) for char in allowed) + "]")
+
+
+def resolve_allow(values: Optional[Iterable[str]]) -> str:
+    """Turn --allow values (set names or literal characters) into one string."""
+    allowed: dict[str, None] = {}
+    for value in values or ():
+        if value.lower() in ALLOW_SETS:
+            chars = ALLOW_SETS[value.lower()]
+        elif value.isascii():
+            # ASCII is always allowed, so this can only be a mistyped set name.
+            raise CSVFilterError(
+                f"Unknown --allow set: {value}. Use a set name ({', '.join(sorted(ALLOW_SETS))}) "
+                "or the characters themselves, such as --allow çş"
+            )
+        else:
+            chars = value
+        allowed.update(dict.fromkeys(char for char in chars if SPECIAL.match(char)))
+    return "".join(allowed)
+
+
+def find_special(text: Optional[str], allowed: str = "") -> list[str]:
     """Return every special character in text, in order, with repeats."""
     if not text:
         return []
-    return SPECIAL.findall(text)
+    return _special(allowed).findall(text)
 
 
-def contains_special_characters(text: Optional[str]) -> bool:
-    return bool(text) and SPECIAL.search(text) is not None
+def contains_special_characters(text: Optional[str], allowed: str = "") -> bool:
+    return bool(text) and _special(allowed).search(text) is not None
 
 
-def to_ascii(text: str, placeholder: str = "?") -> str:
+def to_ascii(text: str, placeholder: str = "?", allowed: str = "") -> str:
     """Replace special characters with the closest ASCII spelling.
 
     Accents are dropped (e-acute becomes e), typographic quotes and dashes
     become plain ones, and anything with no ASCII spelling becomes placeholder.
+    Characters in allowed are kept as they are.
     """
-    if not contains_special_characters(text):
+    pattern = _special(allowed)
+    if not pattern.search(text):
         return text
 
     def replace(match: "re.Match[str]") -> str:
@@ -90,7 +124,7 @@ def to_ascii(text: str, placeholder: str = "?") -> str:
         decomposed = unicodedata.normalize("NFKD", char)
         return SPECIAL.sub("", decomposed) or placeholder
 
-    return SPECIAL.sub(replace, text)
+    return pattern.sub(replace, text)
 
 
 def _plausible(char: str) -> bool:
@@ -157,6 +191,7 @@ class Stats:
     header: list[str] = field(default_factory=list)
     columns: list[str] = field(default_factory=list)
     delimiter: str = ","
+    allowed: str = ""
     total_rows: int = 0
     matching_rows: int = 0
     rows_written: int = 0
@@ -222,6 +257,7 @@ def process(
     encoding: str = "utf-8-sig",
     delimiter: Optional[str] = None,
     placeholder: str = "?",
+    allowed: str = "",
     make_excel_safe: bool = False,
     max_examples: int = 5,
 ) -> Stats:
@@ -231,13 +267,14 @@ def process(
     chosen columns, unchanged. mode "repair" writes every row, with mojibake
     in the chosen columns repaired and nothing else touched. mode "clean"
     writes every row, with mojibake repaired and then special characters
-    replaced by ASCII. columns=None means every column.
+    replaced by ASCII. columns=None means every column. Characters in
+    allowed are treated like ASCII: not reported, and kept by "clean".
     """
     if mode not in ("filter", "repair", "clean"):
         raise ValueError(f"Unknown mode: {mode}")
 
     handle, reader, delimiter = _open_reader(path, encoding, delimiter)
-    stats = Stats(delimiter=delimiter)
+    stats = Stats(delimiter=delimiter, allowed=allowed)
     writer = csv.writer(output, delimiter=delimiter, lineterminator="\n") if output else None
 
     def write(row: Iterable[str]) -> None:
@@ -271,7 +308,7 @@ def process(
                 for index in indexes:
                     if index >= len(row):
                         continue
-                    found = find_special(row[index])
+                    found = find_special(row[index], allowed)
                     if not found:
                         continue
                     row_matches = True
@@ -287,7 +324,7 @@ def process(
                     if mode == "repair":
                         row[index] = repaired
                     elif mode == "clean":
-                        row[index] = to_ascii(repaired, placeholder)
+                        row[index] = to_ascii(repaired, placeholder, allowed)
                 if row_matches:
                     stats.matching_rows += 1
                 if mode != "filter" or row_matches:
@@ -307,6 +344,8 @@ def format_report(stats: Stats, top: int = 15) -> str:
         f"Size: {stats.total_rows} rows x {len(stats.header)} columns",
         f"Columns checked: {', '.join(stats.columns)}",
     ]
+    if stats.allowed:
+        lines.append(f"Allowed as well as ASCII: {' '.join(stats.allowed)}")
     if not stats.found:
         lines.append("No special characters found.")
         return "\n".join(lines)
@@ -334,7 +373,7 @@ def format_report(stats: Stats, top: int = 15) -> str:
     lines.append("First examples:")
     for line_num, name, value in stats.examples:
         lines.append(
-            f"  line {line_num}, {name}: {_shorten(value)!r} -> {_shorten(to_ascii(fix_mojibake(value)))!r}"
+            f"  line {line_num}, {name}: {_shorten(value)!r} -> {_shorten(to_ascii(fix_mojibake(value), allowed=stats.allowed))!r}"
         )
     return "\n".join(lines)
 
@@ -388,6 +427,11 @@ def build_parser() -> argparse.ArgumentParser:
         "-c", "--column", action="append", dest="columns", metavar="NAME",
         help="column to check; repeat for several (default: every column)",
     )
+    parser.add_argument(
+        "--allow", action="append", metavar="SET_OR_CHARS",
+        help=f"characters to accept as well as ASCII: a set name ({', '.join(sorted(ALLOW_SETS))}) "
+             "or the characters themselves; repeat for several, e.g. --allow turkish --allow âîû",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument(
@@ -423,14 +467,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("csvfilter: --delimiter must be a single character", file=sys.stderr)
         return 2
 
-    options = dict(
-        mode="clean" if args.clean else "repair" if args.fix_mojibake else "filter",
-        encoding=args.encoding,
-        delimiter=args.delimiter,
-        placeholder=args.placeholder,
-        make_excel_safe=args.excel_safe,
-    )
     try:
+        options = dict(
+            mode="clean" if args.clean else "repair" if args.fix_mojibake else "filter",
+            encoding=args.encoding,
+            delimiter=args.delimiter,
+            placeholder=args.placeholder,
+            allowed=resolve_allow(args.allow),
+            make_excel_safe=args.excel_safe,
+        )
         if args.output == "-":
             stats = process(args.input, args.columns, output=sys.stdout, **options)
         else:

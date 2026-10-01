@@ -79,6 +79,12 @@ Repair mis-decoded text and keep everything else as it is:
 csvfilter games.csv --fix-mojibake -o games_repaired.csv
 ```
 
+Accept Turkish letters and flag everything else, for a target that takes Turkish (Latin-5) text but not other accents or typographic quotes:
+
+```bash
+csvfilter customers.csv --allow turkish
+```
+
 Use it as a gate in a script or pipeline (exit status 1 if anything is found):
 
 ```bash
@@ -93,12 +99,22 @@ csvfilter games.csv --check
 | `-c NAME` | Column to check. Repeat for several. Default: every column. |
 | `--clean` | Write every row, cleaned to ASCII, instead of only the affected rows. |
 | `--fix-mojibake` | Write every row with mis-decoded text repaired. Cannot be combined with `--clean`, which already includes it. |
+| `--allow SET_OR_CHARS` | Characters to accept as well as ASCII: the set name `turkish`, or the characters themselves. Repeat for several. |
 | `--check` | Report only. Exit status 1 if special characters are found. |
 | `--placeholder TEXT` | Used by `--clean` for characters with no ASCII spelling, such as emoji. Default `?`. |
 | `--encoding NAME` | Encoding of the input. Default UTF-8. Excel on Windows often saves `cp1252`. |
 | `--delimiter CHAR` | Field separator. Default: detected (`,` `;` tab or `\|`). |
 | `--excel-safe` | Neutralise cells that start with `=`, `+`, `-` or `@` (see Safety). |
 | `-q` | Do not print the report. |
+
+### Allowing extra characters
+
+By default only ASCII passes. `--allow` widens that for targets that accept more:
+
+- `--allow turkish` accepts `ç ğ ı ö ş ü` and their capitals `Ç Ğ İ Ö Ş Ü`.
+- `--allow "âîû"` accepts exactly the characters you type. Combine them: `--allow turkish --allow "âîû"`.
+
+Allowed characters are not reported, do not make a row match, and are kept by `--clean`, which still converts everything else: with `--allow turkish`, `Şeker café` becomes `Şeker cafe`. In the desktop window, pick **ASCII + Turkish letters** in the **Allow** menu.
 
 ### Mis-decoded text (mojibake)
 

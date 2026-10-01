@@ -69,6 +69,50 @@ class ToAsciiTests(unittest.TestCase):
         self.assertFalse(csvfilter.contains_special_characters(cleaned))
 
 
+class AllowTests(TempDirCase):
+    TURKISH = csvfilter.ALLOW_SETS["turkish"]
+
+    def test_turkish_set_is_the_six_letters_in_both_cases(self):
+        self.assertEqual(sorted(self.TURKISH), sorted("çğıöşüÇĞİÖŞÜ"))
+
+    def test_allowed_letters_are_not_special(self):
+        self.assertFalse(csvfilter.contains_special_characters("İstanbul'da güneşli çağ", self.TURKISH))
+        self.assertTrue(csvfilter.contains_special_characters("İstanbul'da güneşli çağ"))
+        self.assertEqual(csvfilter.find_special("Şeker café – ığ", self.TURKISH), ["é", "–"])
+
+    def test_clean_keeps_allowed_letters_and_converts_the_rest(self):
+        self.assertEqual(csvfilter.to_ascii("Şeker café – ığ", allowed=self.TURKISH), "Şeker cafe - ığ")
+
+    def test_resolve_allow_mixes_set_names_and_characters(self):
+        self.assertEqual(csvfilter.resolve_allow(None), "")
+        self.assertEqual(csvfilter.resolve_allow(["Turkish"]), self.TURKISH)
+        self.assertEqual(csvfilter.resolve_allow(["turkish", "âç"]), self.TURKISH + "â")
+
+    def test_mistyped_set_name_is_an_error(self):
+        with self.assertRaisesRegex(csvfilter.CSVFilterError, "Unknown --allow set: turkich.*turkish"):
+            csvfilter.resolve_allow(["turkich"])
+
+    def test_process_only_reports_what_is_not_allowed(self):
+        source = self.write("in.csv", "name\nGüneş Yıldız\nZoë\nİpek “Çağ”\n")
+        stats = csvfilter.run(source, self.path("out.csv"), allowed=self.TURKISH)
+        self.assertEqual(self.read("out.csv"), "name\nZoë\nİpek “Çağ”\n")
+        self.assertEqual(stats.characters, {"ë": 1, "“": 1, "”": 1})
+        self.assertIn("Allowed as well as ASCII: ç ğ ı ö ş ü", csvfilter.format_report(stats))
+        self.assertIn("'İpek “Çağ”' -> 'İpek \"Çağ\"'", csvfilter.format_report(stats))
+
+    def test_garbled_turkish_is_repaired_then_kept(self):
+        source = self.write("in.csv", "name\nGÃ¼neÅŸ YÄ±ldÄ±z\n")
+        csvfilter.run(source, self.path("out.csv"), mode="clean", allowed=self.TURKISH)
+        self.assertEqual(self.read("out.csv"), "name\nGüneş Yıldız\n")
+
+    def test_cli_allow(self):
+        turkish = self.write("tr.csv", "name\nGüneş Yıldız\n")
+        self.assertEqual(csvfilter.main([turkish, "--check", "-q"]), 1)
+        self.assertEqual(csvfilter.main([turkish, "--check", "-q", "--allow", "turkish"]), 0)
+        self.assertEqual(csvfilter.main([turkish, "--check", "-q", "--allow", "üşı"]), 0)
+        self.assertEqual(csvfilter.main([turkish, "--check", "-q", "--allow", "turkich"]), 2)
+
+
 class MojibakeTests(unittest.TestCase):
     @staticmethod
     def garble(text, encoding="cp1252"):

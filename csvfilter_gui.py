@@ -13,6 +13,10 @@ ENCODINGS = {
     "Windows / Excel (cp1252)": "cp1252",
     "Latin-1": "latin-1",
 }
+ALLOWED = {
+    "ASCII only": "",
+    "ASCII + Turkish letters": csvfilter.ALLOW_SETS["turkish"],
+}
 CSV_TYPES = [("CSV files", "*.csv"), ("All files", "*.*")]
 
 
@@ -24,6 +28,7 @@ class CSVFilterApp:
         self.input_path: Optional[str] = None
         self.status_var = tk.StringVar(value="Open a CSV file to begin.")
         self.encoding_var = tk.StringVar(value=next(iter(ENCODINGS)))
+        self.allowed_var = tk.StringVar(value=next(iter(ALLOWED)))
         self.excel_safe_var = tk.BooleanVar(value=False)
         self._create_widgets()
 
@@ -42,6 +47,10 @@ class CSVFilterApp:
         )
         encoding_box.pack(side=tk.LEFT)
         encoding_box.bind("<<ComboboxSelected>>", lambda _event: self._load_header())
+        ttk.Label(top, text="Allow:").pack(side=tk.LEFT, padx=(16, 4))
+        ttk.Combobox(
+            top, textvariable=self.allowed_var, values=list(ALLOWED), state="readonly", width=22
+        ).pack(side=tk.LEFT)
 
         ttk.Label(outer, text="Columns to check").grid(row=1, column=0, sticky="w")
         ttk.Label(outer, text="Report").grid(row=1, column=1, sticky="w", padx=(12, 0))
@@ -161,6 +170,7 @@ class CSVFilterApp:
                 self._selected_columns(),
                 mode=mode,
                 encoding=self._encoding(),
+                allowed=ALLOWED[self.allowed_var.get()],
                 make_excel_safe=self.excel_safe_var.get(),
             )
         except csvfilter.CSVFilterError as error:

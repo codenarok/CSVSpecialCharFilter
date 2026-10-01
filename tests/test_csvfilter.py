@@ -78,6 +78,62 @@ class AllowTests(TempDirCase):
     def test_turkish_set_is_the_six_letters_in_both_cases(self):
         self.assertEqual(sorted(self.TURKISH), sorted("çğıöşüÇĞİÖŞÜ"))
 
+    def test_language_sets_let_ordinary_sentences_through(self):
+        samples = {
+            "german": "Größe, Straße, Übung, schön",
+            "french": "Où est l'œuvre ? Ça, c'est à Noël, déjà",
+            "spanish": "¿Dónde está el niño? ¡Aquí, pingüino!",
+            "portuguese": "Não, coração, você, à, avô, ÁGUA",
+            "italian": "Perché è così, più, là, città",
+            "nordic": "Blåbærsyltetøy, smörgås, Ålesund, Ærø",
+            "polish": "Zażółć gęślą jaźń, ŁÓDŹ",
+            "turkish": "Pijamalı hasta yağız şoföre çabucak güvendi, İĞ",
+        }
+        for name, text in samples.items():
+            self.assertEqual(csvfilter.find_special(text, csvfilter.ALLOW_SETS[name]), [], name)
+            self.assertTrue(csvfilter.contains_special_characters(text), name)
+        self.assertEqual(csvfilter.find_special("Größe café", csvfilter.ALLOW_SETS["german"]), ["é"])
+
+    def test_language_sets_have_both_cases_and_no_repeats(self):
+        for name in ["turkish", "german", "french", "portuguese", "italian", "nordic", "polish"]:
+            chars = csvfilter.ALLOW_SETS[name]
+            self.assertEqual(len(set(chars)), len(chars), name)
+            self.assertEqual(sum(c.islower() for c in chars), sum(c.isupper() for c in chars), name)
+
+    def test_encoding_sets_match_what_the_encoding_can_store(self):
+        for name, codec, size in [
+            ("latin1", "iso-8859-1", 96), ("latin2", "iso-8859-2", 96), ("latin5", "iso-8859-9", 96),
+            ("latin9", "iso-8859-15", 96), ("cp1252", "cp1252", 123),
+        ]:
+            chars = csvfilter.ALLOW_SETS[name]
+            self.assertEqual(len(chars), size, name)
+            chars.encode(codec)  # raises if any character does not fit
+        self.assertLessEqual(set(csvfilter.ALLOW_SETS["turkish"]), set(csvfilter.ALLOW_SETS["latin5"]))
+        self.assertLessEqual(set(csvfilter.ALLOW_SETS["polish"]), set(csvfilter.ALLOW_SETS["latin2"]))
+        self.assertIn("€", csvfilter.ALLOW_SETS["latin9"])
+        self.assertNotIn("€", csvfilter.ALLOW_SETS["latin1"])
+        self.assertIn("’", csvfilter.ALLOW_SETS["cp1252"])
+
+    def test_every_set_has_a_description_and_is_listed(self):
+        self.assertEqual(list(csvfilter.ALLOW_SETS), list(csvfilter.ALLOW_DESCRIPTIONS))
+        listing = csvfilter.format_allow_sets()
+        for name in csvfilter.ALLOW_SETS:
+            self.assertIn(f"  {name} ", listing)
+        self.assertIn("ç ğ ı ö ş ü Ç Ğ İ Ö Ş Ü", listing)
+        self.assertIn("96 characters", listing)
+
+    def test_long_allow_lists_are_shortened_in_the_report(self):
+        source = self.write("in.csv", "a\nœ\n")
+        report = csvfilter.format_report(csvfilter.process(source, allowed=csvfilter.ALLOW_SETS["latin1"]))
+        self.assertIn("Allowed as well as ASCII: everything ISO-8859-1 (Latin-1) can store (96 characters)", report)
+        both = csvfilter.resolve_allow(["latin1", "latin2"])
+        report = csvfilter.format_report(csvfilter.process(source, allowed=both))
+        self.assertIn(f"Allowed as well as ASCII: {len(both)} characters", report)
+
+    def test_sets_combine(self):
+        allowed = csvfilter.resolve_allow(["german", "french", "ő"])
+        self.assertEqual(csvfilter.find_special("Straße, œuvre, erdő, mañana", allowed), ["ñ"])
+
     def test_allowed_letters_are_not_special(self):
         self.assertFalse(csvfilter.contains_special_characters("İstanbul'da güneşli çağ", self.TURKISH))
         self.assertTrue(csvfilter.contains_special_characters("İstanbul'da güneşli çağ"))

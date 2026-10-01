@@ -16,15 +16,41 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Optional, Sequence, TextIO
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 
 # Anything outside printable ASCII plus tab, newline and carriage return.
 SPECIAL = re.compile(r"[^\x09\x0A\x0D\x20-\x7E]")
 
-# Named sets for --allow: letters a target system accepts on top of ASCII.
-ALLOW_SETS = {
-    "turkish": "çğıöşüÇĞİÖŞÜ",
+def _encodable(codec: str, first_byte: int = 0xA0) -> str:
+    """Every non-ASCII character a single-byte encoding can store."""
+    chars = []
+    for byte in range(first_byte, 0x100):
+        try:
+            chars.append(bytes([byte]).decode(codec))
+        except UnicodeDecodeError:
+            pass
+    return "".join(chars)
+
+
+# Named sets for --allow: what a target system accepts on top of ASCII.
+# name: (description, characters)
+_ALLOW = {
+    "turkish": ("Turkish letters", "çğıöşüÇĞİÖŞÜ"),
+    "german": ("German letters", "äöüßÄÖÜẞ"),
+    "french": ("French letters", "àâæçéèêëîïôœùûüÿÀÂÆÇÉÈÊËÎÏÔŒÙÛÜŸ"),
+    "spanish": ("Spanish letters and ¿ ¡", "áéíñóúüÁÉÍÑÓÚÜ¿¡"),
+    "portuguese": ("Portuguese letters", "áâãàçéêíóôõúÁÂÃÀÇÉÊÍÓÔÕÚ"),
+    "italian": ("Italian letters", "àèéìíîòóùúÀÈÉÌÍÎÒÓÙÚ"),
+    "nordic": ("Danish, Norwegian, Swedish and Finnish letters", "åäæöøÅÄÆÖØ"),
+    "polish": ("Polish letters", "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"),
+    "latin1": ("everything ISO-8859-1 (Latin-1) can store", _encodable("iso-8859-1")),
+    "latin2": ("everything ISO-8859-2 (Central European) can store", _encodable("iso-8859-2")),
+    "latin5": ("everything ISO-8859-9 (Turkish) can store", _encodable("iso-8859-9")),
+    "latin9": ("everything ISO-8859-15 (Latin-1 with the euro sign) can store", _encodable("iso-8859-15")),
+    "cp1252": ("everything Windows-1252 can store", _encodable("cp1252", 0x80)),
 }
+ALLOW_SETS = {name: chars for name, (_, chars) in _ALLOW.items()}
+ALLOW_DESCRIPTIONS = {name: description for name, (description, _) in _ALLOW.items()}
 
 # Characters with an obvious ASCII spelling that Unicode decomposition misses.
 _ASCII_SPELLINGS = {
@@ -86,7 +112,7 @@ def resolve_allow(values: Optional[Iterable[str]]) -> str:
         elif value.isascii():
             # ASCII is always allowed, so this can only be a mistyped set name.
             raise CSVFilterError(
-                f"Unknown --allow set: {value}. Use a set name ({', '.join(sorted(ALLOW_SETS))}) "
+                f"Unknown --allow set: {value}. Use a set name ({', '.join(ALLOW_SETS)}) "
                 "or the characters themselves, such as --allow çş"
             )
         else:
@@ -345,7 +371,7 @@ def format_report(stats: Stats, top: int = 15) -> str:
         f"Columns checked: {', '.join(stats.columns)}",
     ]
     if stats.allowed:
-        lines.append(f"Allowed as well as ASCII: {' '.join(stats.allowed)}")
+        lines.append(f"Allowed as well as ASCII: {_describe_allowed(stats.allowed)}")
     if not stats.found:
         lines.append("No special characters found.")
         return "\n".join(lines)
@@ -376,6 +402,16 @@ def format_report(stats: Stats, top: int = 15) -> str:
             f"  line {line_num}, {name}: {_shorten(value)!r} -> {_shorten(to_ascii(fix_mojibake(value), allowed=stats.allowed))!r}"
         )
     return "\n".join(lines)
+
+
+def _describe_allowed(allowed: str) -> str:
+    """Short lists are spelled out; long ones are named or counted."""
+    if len(allowed) <= 40:
+        return " ".join(allowed)
+    for name, chars in ALLOW_SETS.items():
+        if allowed == chars:
+            return f"{ALLOW_DESCRIPTIONS[name]} ({len(allowed)} characters)"
+    return f"{len(allowed)} characters"
 
 
 def _shorten(value: str, limit: int = 60) -> str:
@@ -415,6 +451,22 @@ def run(
             os.remove(partial)
 
 
+def format_allow_sets() -> str:
+    lines = ["Sets for --allow:"]
+    for name, description in ALLOW_DESCRIPTIONS.items():
+        chars = ALLOW_SETS[name]
+        shown = " ".join(chars) if len(chars) <= 40 else f"{len(chars)} characters"
+        lines.append(f"  {name:<11} {description}: {shown}")
+    lines.append("Combine sets, or add your own characters: --allow german --allow french --allow \"ő\"")
+    return "\n".join(lines)
+
+
+class _ListAllowSets(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(format_allow_sets())
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="csvfilter",
@@ -429,8 +481,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--allow", action="append", metavar="SET_OR_CHARS",
-        help=f"characters to accept as well as ASCII: a set name ({', '.join(sorted(ALLOW_SETS))}) "
+        help="characters to accept as well as ASCII: a set name (see --list-allow) "
              "or the characters themselves; repeat for several, e.g. --allow turkish --allow âîû",
+    )
+    parser.add_argument(
+        "--list-allow", action=_ListAllowSets, nargs=0,
+        help="show the sets --allow knows, with their characters, and exit",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     modes = parser.add_mutually_exclusive_group()

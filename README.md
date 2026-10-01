@@ -99,7 +99,8 @@ csvfilter games.csv --check
 | `-c NAME` | Column to check. Repeat for several. Default: every column. |
 | `--clean` | Write every row, cleaned to ASCII, instead of only the affected rows. |
 | `--fix-mojibake` | Write every row with mis-decoded text repaired. Cannot be combined with `--clean`, which already includes it. |
-| `--allow SET_OR_CHARS` | Characters to accept as well as ASCII: the set name `turkish`, or the characters themselves. Repeat for several. |
+| `--allow SET_OR_CHARS` | Characters to accept as well as ASCII: a set name such as `turkish` or `latin1`, or the characters themselves. Repeat for several. |
+| `--list-allow` | Show every set `--allow` knows, with its characters, and exit. |
 | `--check` | Report only. Exit status 1 if special characters are found. |
 | `--placeholder TEXT` | Used by `--clean` for characters with no ASCII spelling, such as emoji. Default `?`. |
 | `--encoding NAME` | Encoding of the input. Default UTF-8. Excel on Windows often saves `cp1252`. |
@@ -111,10 +112,29 @@ csvfilter games.csv --check
 
 By default only ASCII passes. `--allow` widens that for targets that accept more:
 
-- `--allow turkish` accepts `ç ğ ı ö ş ü` and their capitals `Ç Ğ İ Ö Ş Ü`.
-- `--allow "âîû"` accepts exactly the characters you type. Combine them: `--allow turkish --allow "âîû"`.
+| Set | Accepts |
+| --- | --- |
+| `turkish` | `ç ğ ı ö ş ü` and capitals |
+| `german` | `ä ö ü ß` and capitals |
+| `french` | `à â æ ç é è ê ë î ï ô œ ù û ü ÿ` and capitals |
+| `spanish` | `á é í ñ ó ú ü` and capitals, plus `¿ ¡` |
+| `portuguese` | `á â ã à ç é ê í ó ô õ ú` and capitals |
+| `italian` | `à è é ì í î ò ó ù ú` and capitals |
+| `nordic` | `å ä æ ö ø` and capitals (Danish, Norwegian, Swedish, Finnish) |
+| `polish` | `ą ć ę ł ń ó ś ź ż` and capitals |
+| `latin1` | everything ISO-8859-1 can store |
+| `latin2` | everything ISO-8859-2 (Central European) can store |
+| `latin5` | everything ISO-8859-9 (Turkish) can store |
+| `latin9` | everything ISO-8859-15 (Latin-1 with the euro sign) can store |
+| `cp1252` | everything Windows-1252 can store, including curly quotes, dashes and `€` |
 
-Allowed characters are not reported, do not make a row match, and are kept by `--clean`, which still converts everything else: with `--allow turkish`, `Şeker café` becomes `Şeker cafe`. In the desktop window, pick **ASCII + Turkish letters** in the **Allow** menu.
+The language sets hold letters only, so curly quotes and dashes are still flagged. The encoding sets answer a different question: "will this fit in my database column?" If the target is a Latin-1 `VARCHAR`, `--allow latin1` reports exactly what will not survive the import.
+
+- Combine sets by repeating the option: `--allow german --allow french`.
+- Add your own characters: `--allow turkish --allow "âîû"` accepts exactly what you type on top of the set.
+- `csvfilter --list-allow` prints the sets.
+
+Allowed characters are not reported, do not make a row match, and are kept by `--clean`, which still converts everything else: with `--allow turkish`, `Şeker café` becomes `Şeker cafe`. In the desktop window, pick a set from the **Allow** menu.
 
 ### Mis-decoded text (mojibake)
 

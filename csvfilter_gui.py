@@ -2,11 +2,28 @@
 from __future__ import annotations
 
 import os
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+import sys
 from typing import Optional
 
 import csvfilter
+
+# Some Pythons (Homebrew's, minimal Linux installs) ship without Tkinter.
+# Keep the module importable so main() can explain, instead of a traceback.
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+except ImportError:
+    tk = None
+
+_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
+NO_TKINTER = f"""csvfilter-gui needs Tkinter, which this Python ({_VERSION}) does not include.
+
+To add it:
+  Homebrew (macOS):   brew install python-tk@{_VERSION}
+  Debian / Ubuntu:    sudo apt install python3-tk
+  Fedora:             sudo dnf install python3-tkinter
+
+The command-line tool does not need it: csvfilter --help"""
 
 ENCODINGS = {
     "UTF-8 (most files)": "utf-8-sig",
@@ -185,11 +202,15 @@ class CSVFilterApp:
             self.status_var.set(f"No special characters in {stats.total_rows} rows.")
 
 
-def main() -> None:
+def main() -> int:
+    if tk is None:
+        print(NO_TKINTER, file=sys.stderr)
+        return 1
     root = tk.Tk()
     CSVFilterApp(root)
     root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

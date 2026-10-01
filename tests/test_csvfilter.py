@@ -1,8 +1,11 @@
+import contextlib
+import importlib
 import io
 import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -303,6 +306,22 @@ class ReportAndCliTests(TempDirCase):
         self.assertEqual(status, 0)
         self.assertIn("Cafe Adventure", self.read("out.csv"))
         self.assertIn("Tést Studios", self.read("out.csv"))
+
+
+class GuiWithoutTkinterTests(unittest.TestCase):
+    def test_missing_tkinter_gives_a_hint_not_a_traceback(self):
+        # A None entry makes "import tkinter" fail, as on a Python without it.
+        with mock.patch.dict(sys.modules, {"tkinter": None}):
+            sys.modules.pop("csvfilter_gui", None)
+            gui = importlib.import_module("csvfilter_gui")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                status = gui.main()
+        sys.modules.pop("csvfilter_gui", None)
+        self.assertEqual(status, 1)
+        self.assertIn("needs Tkinter", stderr.getvalue())
+        self.assertIn(f"python-tk@{sys.version_info.major}.{sys.version_info.minor}", stderr.getvalue())
+        self.assertIn("csvfilter --help", stderr.getvalue())
 
 
 if __name__ == "__main__":

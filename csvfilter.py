@@ -16,7 +16,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Optional, Sequence, TextIO
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 # Anything outside printable ASCII plus tab, newline and carriage return.
 SPECIAL = re.compile(r"[^\x09\x0A\x0D\x20-\x7E]")

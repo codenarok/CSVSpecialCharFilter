@@ -1,6 +1,6 @@
 # CSV Special Character Filter
 
-Find, report and clean the characters in a CSV file that break imports into systems expecting plain ASCII, such as SQL `VARCHAR` columns, legacy ERPs and fixed-width exports.
+Find, report, repair and clean the characters in a CSV file that break imports into systems expecting plain ASCII, such as SQL `VARCHAR` columns, legacy ERPs and fixed-width exports.
 
 A "special character" is anything outside printable ASCII (space to `~`) plus tab and line breaks: accented letters, typographic quotes and dashes, non-breaking spaces, emoji and control characters.
 
@@ -14,19 +14,25 @@ A "special character" is anything outside printable ASCII (space to `~`) plus ta
 | --- | --- |
 | Report | Shows how many rows are affected, which columns, and exactly which characters (with their Unicode names). |
 | Filter | Saves only the rows that contain special characters, unchanged, so you can review them. |
-| Clean | Saves every row with special characters replaced by plain ASCII: `Café` becomes `Cafe`, `“quoted”` becomes `"quoted"`, `Şeker` becomes `Seker`. |
+| Repair | Saves every row with mis-decoded text (mojibake) put right: `CafÃ©` becomes `Café`, `itâ€™s` becomes `it’s`. Accents are kept. |
+| Clean | Saves every row with special characters replaced by plain ASCII: `Café` becomes `Cafe`, `“quoted”` becomes `"quoted"`, `Şeker` becomes `Seker`. Mis-decoded text is repaired first, so `CafÃ©` also becomes `Cafe`. |
 
-## Command line
+## Install
+
+With [pipx](https://pipx.pypa.io), which gives you a `csvfilter` command without touching your other Python packages:
 
 ```bash
-git clone https://github.com/codenarok/CSVSpecialCharFilter.git
-cd CSVSpecialCharFilter
+pipx install git+https://github.com/codenarok/CSVSpecialCharFilter.git
 ```
+
+Plain `pip install git+https://github.com/codenarok/CSVSpecialCharFilter.git` works too. Or skip installing: clone the repository and run `python3 csvfilter.py` in place of `csvfilter` below.
+
+## Command line
 
 Report on every column:
 
 ```bash
-python3 csvfilter.py games.csv
+csvfilter games.csv
 ```
 
 ```text
@@ -50,19 +56,25 @@ First examples:
 Save the affected rows, checking two columns only:
 
 ```bash
-python3 csvfilter.py games.csv -c Title -c Developer -o needs_review.csv
+csvfilter games.csv -c Title -c Developer -o needs_review.csv
 ```
 
 Save a cleaned copy of the whole file:
 
 ```bash
-python3 csvfilter.py games.csv --clean -o games_ascii.csv
+csvfilter games.csv --clean -o games_ascii.csv
+```
+
+Repair mis-decoded text and keep everything else as it is:
+
+```bash
+csvfilter games.csv --fix-mojibake -o games_repaired.csv
 ```
 
 Use it as a gate in a script or pipeline (exit status 1 if anything is found):
 
 ```bash
-python3 csvfilter.py games.csv --check
+csvfilter games.csv --check
 ```
 
 ### Options
@@ -71,7 +83,8 @@ python3 csvfilter.py games.csv --check
 | --- | --- |
 | `-o FILE` | File to write. `-` writes to standard output. |
 | `-c NAME` | Column to check. Repeat for several. Default: every column. |
-| `--clean` | Write every row, cleaned, instead of only the affected rows. |
+| `--clean` | Write every row, cleaned to ASCII, instead of only the affected rows. |
+| `--fix-mojibake` | Write every row with mis-decoded text repaired. Cannot be combined with `--clean`, which already includes it. |
 | `--check` | Report only. Exit status 1 if special characters are found. |
 | `--placeholder TEXT` | Used by `--clean` for characters with no ASCII spelling, such as emoji. Default `?`. |
 | `--encoding NAME` | Encoding of the input. Default UTF-8. Excel on Windows often saves `cp1252`. |
@@ -79,13 +92,19 @@ python3 csvfilter.py games.csv --check
 | `--excel-safe` | Neutralise cells that start with `=`, `+`, `-` or `@` (see Safety). |
 | `-q` | Do not print the report. |
 
+### Mis-decoded text (mojibake)
+
+When a UTF-8 file is opened as Windows-1252 or Latin-1 somewhere along the way, `Café` turns into `CafÃ©` and `it’s` into `itâ€™s`. The report counts cells that look like this, and `--fix-mojibake` and `--clean` repair them, including text garbled twice.
+
+The repair is deliberately cautious. A cell is changed only if every special character in it is part of a mis-decoded sequence and the result is plausible, so genuine text such as `„Spaß“` or `CAFÉ…` is left alone. The cost is that a cell mixing correct and garbled text is not repaired.
+
 ## Desktop window
 
 ```bash
-python3 main.py
+csvfilter-gui
 ```
 
-Open a CSV, select the columns to check (none selected means all), then **Scan**, **Save matching rows** or **Save cleaned copy**. Needs Tkinter, which ships with most Python installs.
+(or `python3 csvfilter_gui.py` from a clone). Open a CSV, select the columns to check (none selected means all), then **Scan**, **Save matching rows**, **Save repaired copy** or **Save cleaned copy**. Needs Tkinter, which ships with most Python installs.
 
 ## Safety
 

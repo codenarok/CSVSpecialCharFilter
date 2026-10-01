@@ -14,3 +14,15 @@ __pycache__/
 .idea/
 *.swp
 *.swo
+.DS_Store
+
+# Secrets and local settings
+.env
+.env.*
+
+# Data files: never commit real CSVs to a public repository.
+# Test data lives inside tests/test_csvfilter.py instead.
+*.csv
+*.tsv
+*.xlsx
+*.part
